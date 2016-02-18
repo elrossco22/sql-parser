@@ -62,6 +62,12 @@ class JoinKeyword extends Component
      * @var Condition[]
      */
     public $on;
+    /**
+     * Columns in Using clause
+     *
+     * @var ArrayObj
+     */
+    public $using;
 
     /**
      * @param Parser     $parser  The parser that serves as context.
@@ -86,8 +92,11 @@ class JoinKeyword extends Component
          *      1 -----------------------[ expr ]----------------------> 2
          *
          *      2 ------------------------[ ON ]-----------------------> 3
+         *      2 -----------------------[ USING ]---------------------> 4
          *
          *      3 --------------------[ conditions ]-------------------> 0
+         *
+         *      4 ----------------------[ columns ]--------------------> 0
          *
          * @var int $state
          */
@@ -128,14 +137,23 @@ class JoinKeyword extends Component
                     break;
                 }
             } elseif ($state === 1) {
-                $expr->expr = Expression::parse($parser, $list, array('skipColumn' => true));
+                $expr->expr = Expression::parse($parser, $list, array('field' => 'table'));
                 $state = 2;
             } elseif ($state === 2) {
-                if (($token->type === Token::TYPE_KEYWORD) && ($token->value === 'ON')) {
-                    $state = 3;
+                if ($token->type === Token::TYPE_KEYWORD) {
+                    if ($token->value === 'ON') {
+                        $state = 3;
+                    } elseif ($token->value === 'USING') {
+                        $state = 4;
+                    }
                 }
             } elseif ($state === 3) {
                 $expr->on = Condition::parse($parser, $list);
+                $ret[] = $expr;
+                $expr = new JoinKeyword();
+                $state = 0;
+            } elseif ($state === 4) {
+                $expr->using = ArrayObj::parse($parser, $list);
                 $ret[] = $expr;
                 $expr = new JoinKeyword();
                 $state = 0;
@@ -161,8 +179,10 @@ class JoinKeyword extends Component
     {
         $ret = array();
         foreach ($component as $c) {
-            $ret[] = array_search($c->type, static::$JOINS) . ' '
-                . $c->expr . ' ON ' . Condition::build($c->on);
+            $ret[] = array_search($c->type, static::$JOINS) . ' ' . $c->expr
+                . (! empty($c->on)
+                    ? ' ON ' . Condition::build($c->on)
+                    : ' USING ' . ArrayObj::build($c->using));
         }
         return implode(' ', $ret);
     }
